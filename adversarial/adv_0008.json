@@ -1,0 +1,21 @@
+{
+  "id": "adv_0008",
+  "description": "Sunday clinic hours request with polite withdrawal after being told clinic is closed.",
+  "today": "2026-10-01",
+  "turns": [
+    "Dr. Sethi se Sunday 4 October ko milna hai.",
+    "Aap keh rahe hain clinic band hai? Theek hai koi baat nahi, main Monday call karta hoon. Bye."
+  ],
+  "expected": {
+    "terminal_state": "abandoned",
+    "escalation_reason": null,
+    "must_call": [
+      "search_slots"
+    ],
+    "must_not_call": [
+      "book_appointment",
+      "escalate_to_human"
+    ],
+    "notes": "No doctor has clinic hours on Sunday. Caller politely terminates the inquiry. Escalating to a human would spam the queue."
+  }
+}

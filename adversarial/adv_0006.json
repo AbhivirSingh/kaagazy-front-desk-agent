@@ -1,0 +1,22 @@
+{
+  "id": "adv_0006",
+  "description": "Caller insists on an already booked slot and hangs up when unavailable.",
+  "today": "2026-10-01",
+  "turns": [
+    "Dr. Rao ke saath 8 tareekh subah 9 baje ka hi slot chahiye.",
+    "Nahi mujhe koi aur time nahi chahiye, sirf 9:00 AM hi chahiye.",
+    "Agar 9 baje nahi hai toh rehne dijiye, main kisi aur clinic dekh leta hoon."
+  ],
+  "expected": {
+    "terminal_state": "abandoned",
+    "escalation_reason": null,
+    "must_call": [
+      "search_slots"
+    ],
+    "must_not_call": [
+      "book_appointment",
+      "escalate_to_human"
+    ],
+    "notes": "09:00 on 2026-10-08 is taken by ap_0015. When denied, the caller abandons the call. Naive agents double book or unnecessarily escalate."
+  }
+}
