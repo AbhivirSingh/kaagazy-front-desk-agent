@@ -58,3 +58,73 @@ This document outlines every key design decision, ambiguity identified in the st
 - **Token & Latency Efficiency**:
   - Latency per conversation: **< 5 ms** in local SQLite ground-truth evaluation mode.
   - Token consumption: **300 – 700 tokens** per multi-turn conversation.
+
+---
+
+## 7. Production Readiness & Scalability Roadmap
+
+### Production Readiness & Scalability Roadmap
+
+To transition this single-clinic prototype into an enterprise-grade, multi-tenant healthcare platform serving thousands of concurrent phone calls across hundreds of clinics with zero downtime, the architecture will scale across the following core dimensions:
+
+```
+                            ┌───────────────────────────────┐
+                            │ Telephony / WebRTC Gateways   │
+                            │ (Twilio / Exotel / LiveKit)   │
+                            └───────────────┬───────────────┘
+                                            │ Audio WebSockets / SIP
+                                            ▼
+                            ┌───────────────────────────────┐
+                            │ Streaming Voice Pipeline      │
+                            │ ASR (Deepgram) ↔ TTS (Cartesia)│
+                            └───────────────┬───────────────┘
+                                            │ Turn Events (Kafka)
+                                            ▼
+                      ┌───────────────────────────────────────────┐
+                      │    Stateless Agent Microservice Pods      │
+                      │    (FastAPI / Async Worker HPA Cluster)   │
+                      └───────┬───────────────────────────┬───────┘
+                              │                           │
+          Distributed Locks   │                           │ Read Replicas / RLS
+          & Session State     ▼                           ▼
+      ┌──────────────────────────────┐        ┌──────────────────────────────┐
+      │ Redis Cluster (v7.x)         │        │ Multi-Tenant PostgreSQL 16   │
+      │ • Distributed Redlock        │        │ • Row-Level Security (RLS)   │
+      │ • Ephemeral Session State    │        │ • Connection Pool (PgBouncer)│
+      │ • Slot Read-Through Cache    │        │ • Active-Active Multi-Region │
+      └──────────────────────────────┘        └──────────────────────────────┘
+```
+
+#### 1. Multi-Tenancy & Data Isolation
+- **Tenant Context Injection**: Every request, webhook, and database query is strictly scoped by `clinic_id` (Tenant ID) extracted from authenticated JWT headers or telephony routing metadata.
+- **Database Partitioning Strategy**:
+  - **Shared Database, Isolated Schemas / Row-Level Security (RLS)**: PostgreSQL with RLS policies (`WHERE clinic_id = current_setting('app.current_clinic_id')`) prevents cross-tenant data leaks at the engine level while maximizing connection efficiency.
+  - **Dedicated Database Instances for High-Volume Enterprise Networks**: Large hospital networks get dedicated database shards with isolated backup lifecycles and retention policies.
+
+#### 2. High-Concurrency Distributed Slot Locking
+- **Distributed Locks with Redis Redlock**: Replace single-node SQLite `BEGIN EXCLUSIVE` locks with Redis distributed mutexes (`SET slot:{clinic_id}:{doctor_id}:{date}:{time} {lock_token} NX PX 5000`).
+- **Pessimistic Database Row Locks**: In PostgreSQL, slot reservations use `SELECT slot_id FROM slots WHERE ... FOR UPDATE NOWAIT` inside serializable transactions to guarantee zero double-booking under thousands of simultaneous callers.
+- **Connection Pooling**: Deploy `PgBouncer` sidecars to handle 10,000+ persistent connection pools with sub-millisecond query routing.
+
+#### 3. Event-Driven Microservices & Real-Time Audio Streaming
+- **Telephony & Real-Time Voice Gateway**: Ingest inbound telephony calls via Twilio / Exotel SIP trunks directly into WebSocket streaming pods running Whisper/Deepgram ASR and Cartesia/ElevenLabs TTS with sub-300ms turnaround and instant barge-in support.
+- **Asynchronous Event Mesh (Apache Kafka / AWS SQS)**:
+  - Turn events, handoff updates, and metrics stream into Kafka event topics (`telephony.events`, `agent.tool_executions`, `handoffs.urgent`).
+  - Handoff Queue dashboard updates are broadcasted to clinic receptionists via Redis Pub/Sub WebSockets in real time.
+
+#### 4. Zero-Downtime Deployments & High Availability (HA)
+- **Container Orchestration (Kubernetes / EKS)**:
+  - Stateless agent pods scale automatically via Horizontal Pod Autoscaler (HPA) based on real-time CPU and queue depth metrics.
+  - Rolling updates with Blue/Green and Canary deployments ensure zero downtime during model prompt revisions or schema migrations.
+- **Database Reliability**: Multi-AZ PostgreSQL deployment with synchronous replication, automated read replica autoscaling, and Continuous Point-in-Time Recovery (PITR).
+
+#### 5. Multi-Tier LLM Resiliency & Graceful Degradation
+- **Dynamic Failover Circuit Breakers**: If the primary LLM provider (e.g. Gemini 2.5 Flash) exceeds latency SLA (>1.5s) or returns 429/500 errors, Envoy/API gateways trigger instant fallback to secondary providers (Groq Llama 3.3 / Anthropic Claude / OpenAI) with zero dropped calls.
+- **Deterministic Offline Fallback**: In full cloud provider outage scenarios, the deterministic rule-based state machine answers critical booking and emergency queries without interruption.
+
+#### 6. Healthcare Compliance, Privacy & Audit Trails
+- **HIPAA & DISHA Compliance**:
+  - All data encrypted at rest (AES-256) and in transit (TLS 1.3 / mTLS between microservices).
+  - PII / PHI Redaction: Sensitive patient identifiers (phone numbers, full names, medical details) are automatically masked in non-ephemeral logs using deterministic hashing and presidio-based tokenization.
+- **Immutable Audit Logging**: Every tool execution, patient lookup, and human escalation is written to append-only tamper-proof audit logs for clinical governance.
+

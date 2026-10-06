@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: swasthiq-front-desk-agent
+    env: docker
+    plan: free
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: MODEL_NAME
+        value: gemini-2.5-flash
+      - key: GROQ_MODEL
+        value: qwen/qwen3.8-27b
