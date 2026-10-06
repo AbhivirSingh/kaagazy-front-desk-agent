@@ -53,26 +53,26 @@ def call_llm_reply(prompt: str, system_context: str = "") -> Tuple[Optional[str]
     # 2. Try Groq Cloud (Free Tier)
     if GROQ_API_KEY:
         try:
-            import httpx
-            res = httpx.post(
+            body = json.dumps({
+                "model": GROQ_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_context},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.0
+            }).encode("utf-8")
+            req = urllib.request.Request(
                 "https://api.groq.com/openai/v1/chat/completions",
+                data=body,
                 headers={
                     "Authorization": f"Bearer {GROQ_API_KEY}",
                     "Content-Type": "application/json",
                     "User-Agent": "SwasthiQ-Agent/1.0"
                 },
-                json={
-                    "model": GROQ_MODEL,
-                    "messages": [
-                        {"role": "system", "content": system_context},
-                        {"role": "user", "content": prompt}
-                    ],
-                    "temperature": 0.0
-                },
-                timeout=4.0
+                method="POST"
             )
-            if res.status_code == 200:
-                data = res.json()
+            with urllib.request.urlopen(req, context=_SSL_CONTEXT, timeout=5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
                 text = data["choices"][0]["message"]["content"]
                 tokens = data.get("usage", {}).get("total_tokens", 300)
                 return text.strip(), tokens

@@ -169,7 +169,7 @@ def get_llm_status(force: bool = False):
     global _LLM_CACHE
     import time
     from .config import MODEL_NAME, GROQ_MODEL, GEMINI_API_KEY, GROQ_API_KEY
-    import ssl, certifi, urllib.request, httpx
+    import ssl, certifi, urllib.request
 
     now = time.monotonic()
     if not force and _LLM_CACHE["data"] and (now - _LLM_CACHE["timestamp"] < _CACHE_TTL_SECONDS):
@@ -209,14 +209,22 @@ def get_llm_status(force: bool = False):
     if GROQ_API_KEY:
         try:
             started = time.monotonic()
-            res = httpx.post(
+            groq_body = json.dumps({
+                "model": GROQ_MODEL,
+                "messages": [{"role": "user", "content": "ping"}]
+            }).encode("utf-8")
+            groq_req = urllib.request.Request(
                 "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "User-Agent": "SwasthiQ-Agent/1.0"},
-                json={"model": GROQ_MODEL, "messages": [{"role": "user", "content": "ping"}]},
-                timeout=4.0
+                data=groq_body,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "SwasthiQ-Agent/1.0"
+                },
+                method="POST"
             )
-            elapsed = int((time.monotonic() - started) * 1000)
-            if res.status_code == 200:
+            with urllib.request.urlopen(groq_req, context=ssl_context, timeout=4) as resp:
+                elapsed = int((time.monotonic() - started) * 1000)
                 providers.append({
                     "id": "groq",
                     "name": "Groq Cloud",
@@ -224,15 +232,6 @@ def get_llm_status(force: bool = False):
                     "tier": "Secondary Fallback",
                     "status": "online",
                     "latency_ms": elapsed
-                })
-            else:
-                providers.append({
-                    "id": "groq",
-                    "name": "Groq Cloud",
-                    "model": GROQ_MODEL,
-                    "tier": "Secondary Fallback",
-                    "status": "error",
-                    "error": f"HTTP {res.status_code}"
                 })
         except Exception as e:
             providers.append({
